@@ -16,7 +16,7 @@
 #include <PubSubClient.h>      // MQTT client
 #include <ArduinoJson.h>
 #include <esp_system.h>
-
+#include <esp_adc_cal.h>
 // ----------------------------------------------------------------------------
 //  Configuration
 // ----------------------------------------------------------------------------
@@ -48,6 +48,15 @@ float relativeHumidity;
 // char idStr[18];
 uint8_t factoryMac[6];
 
+
+
+// Definitions for battery readings
+const int  BAT_ADC_PIN = 35;        // GPIO 35 = ADC1_CH7
+const int  ADC_BITS    = 12;        // 0–4095
+const float R1 = 10000.0;           // ohms (top)
+const float R2 =  1000.0;           // ohms (bottom)
+const float DIV_MULT = (R1 + R2) / R2;   // = 11.0
+static esp_adc_cal_characteristics_t adc_chars;
 
 
 // display setup
@@ -83,6 +92,9 @@ WiFiClientSecure net = WiFiClientSecure();
 PubSubClient client(net);
 
 
+volatile bool g_restartProv = false;
+
+
 // ----------------------------------------------------------------------------
 //  Forward declarations
 // ----------------------------------------------------------------------------
@@ -91,6 +103,10 @@ bool attemptWiFiConnect();
 void startProvisioning();
 void onWiFiConnected();
 void SysProvEvent(arduino_event_t *e);
+
+void restartProvisionLater() {
+  g_restartProv = true;          // will be serviced in loop()
+}
 
 // ----------------------------------------------------------------------------
 //  helper functions
@@ -200,6 +216,10 @@ bool attemptWiFiConnect() {
 // ----------------------------------------------------------------------------
 void startProvisioning() {
   Serial.println("[SETUP] Starting BLE provisioning…");
+  
+  // keep BLE GATT server running even after a session ends
+  WiFiProv.disableAutoStop(0);
+  
   WiFiProv.beginProvision(
     NETWORK_PROV_SCHEME_BLE,
     NETWORK_PROV_SCHEME_HANDLER_FREE_BLE,
@@ -210,6 +230,7 @@ void startProvisioning() {
     true  // reset any prior provisioning
   );
   WiFiProv.printQR(SERVICE_NAME, POP, "ble");
+
   Serial.println("[SETUP] Scan the QR code above with the ESP-BLE-Provisioning app…");
   display.clearDisplay();
   display.setTextSize(2);
@@ -220,6 +241,22 @@ void startProvisioning() {
 //  Called whenever we actually get an IP (either from stored creds or after prov)
 // ----------------------------------------------------------------------------
 void onWiFiConnected() {
+
+  Serial.print("Reading battery values");
+  // set up for battery reading
+  analogReadResolution(12);  
+  analogSetPinAttenuation(BAT_ADC_PIN, ADC_11db);
+  esp_adc_cal_characterize(
+        ADC_UNIT_1,
+        ADC_ATTEN_DB_11,
+        ADC_WIDTH_BIT_12,
+        1100,          // fallback Vref (mV) if chip has no eFuse data
+        &adc_chars);
+  float bat_vb  = readBatteryVoltage();
+  float bat_pct = voltageToPercent(bat_vb);
+
+
+
   Serial.print("[WIFI] Connected, IP: ");
   Serial.println(WiFi.localIP());
 
@@ -249,15 +286,6 @@ void onWiFiConnected() {
   oledMessage("Sensor setup concluded",1);
   oledMessage("Start sensor reading",2);
   delay(3000);
-
-  // WiFiUDP ntpUDP;
-  // NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000); // UTC timezone, update every 60 seconds
-  // timeClient.update();
-  // unsigned long epochTime = timeClient.getEpochTime();
-  // struct tm* timeInfo = gmtime((time_t*)&epochTime); // Convert epoch to time structure (UTC)
-  // char timestampBuffer[20];
-  // strftime(timestampBuffer, sizeof(timestampBuffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-  // sensortime = String(timestampBuffer);
 
 
   bool dataReady = false;
@@ -297,15 +325,24 @@ void onWiFiConnected() {
   Serial.print("Relative Humidity [RH]: ");
   Serial.print(relativeHumidity);
   Serial.println();
+  Serial.print("Battery voltage: ");
+  Serial.print(bat_vb);
+  Serial.println();
+  Serial.print("Battery percent: ");
+  Serial.print(bat_pct);
+
+
   Serial.println("*********");
 
 
-
   display.clearDisplay();
-  oledMessage(("SM: " + String(soilmoisture)).c_str(), 1);
-  oledMessage(("LI: " + String(luminosity)).c_str(), 2);
-  oledMessage(("T: " + String(temperature)).c_str(), 3);
-  oledMessage(("RH: " + String(relativeHumidity)).c_str(), 4);
+  oledMessage(("SM: " + String(soilmoisture)).c_str(), 0);
+  oledMessage(("LI: " + String(luminosity)).c_str(), 1);
+  oledMessage(("T: " + String(temperature)).c_str(), 2);
+  oledMessage(("RH: " + String(relativeHumidity)).c_str(), 3);
+  oledMessage(("BAT V: " + String(bat_vb)).c_str(), 4);
+  oledMessage(("BAT PCT: " + String(bat_pct)).c_str(), 5);
+  
 
   String idStr = WiFi.macAddress();
 
@@ -320,6 +357,9 @@ void onWiFiConnected() {
   doc["luminosity"] = luminosity;
   doc["soilmoisture"] = soilmoisture;
   doc["sensoridentification"] = idStr;
+  doc["batvoltage"] = bat_vb;
+  doc["batpercent"] = bat_pct;
+  
   char jsonBuffer[256];
   serializeJson(doc, jsonBuffer); // print to client
   Serial.println(jsonBuffer);
@@ -337,7 +377,7 @@ void onWiFiConnected() {
   // }
 
   display.clearDisplay();
-  oledMessage("Going to sleep",6);
+  oledMessage("Going to sleep",3);
   delay(2000);
   Serial.println("[APP] Going to deep sleep for 30 minutes…");
   display.ssd1306_command(SSD1306_DISPLAYOFF);
@@ -358,6 +398,9 @@ void SysProvEvent(arduino_event_t *e) {
       Serial.println("\n[PROV] got credentials:");
       Serial.print("   SSID = "); Serial.println((char*)cred.ssid);
       Serial.print("   PSK  = "); Serial.println((char*)cred.password);
+      display.clearDisplay();
+      display.setTextSize(1);
+      oledMessage("Connecting to WiFi...", 0);
       break;
     }
 
@@ -369,6 +412,13 @@ void SysProvEvent(arduino_event_t *e) {
       } else if (reason == NETWORK_PROV_WIFI_STA_AP_NOT_FOUND) {
         Serial.println("   ↳ AP not found (wrong SSID / hidden / 5GHz?)");
       }
+      display.clearDisplay();
+      display.setTextSize(1);
+      oledMessage("WiFi setup failed!", 0);
+      oledMessage("Reenter credentials", 1);
+      // delay(3000);
+      WiFi.disconnect(true);
+      restartProvisionLater();      // defer restart
       break;
     }
 
@@ -382,6 +432,12 @@ void SysProvEvent(arduino_event_t *e) {
 
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       Serial.println("[WIFI] disconnected");
+      display.clearDisplay();
+      display.setTextSize(1);
+      oledMessage("WiFi connect failed", 0);
+      oledMessage("Reenter credentials", 1);
+      WiFi.disconnect(true);
+      restartProvisionLater();      // defer restart
       break;
 
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
@@ -401,6 +457,18 @@ void oledMessage(const char* message, int line) {
   display.setCursor(0, line * 10); // Move cursor to the right line
   display.print(message);
   display.display();
+}
+
+float readBatteryVoltage() {
+  uint32_t raw = analogRead(BAT_ADC_PIN);
+  uint32_t mv  = esp_adc_cal_raw_to_voltage(raw, &adc_chars); // mV at divider
+  return (mv / 1000.0) * 11.0;   // undo divider
+}
+
+float voltageToPercent(float vb) {
+  // crude linear 2.75 V → 0 %, 4.20 V → 100 %
+  float pct = (vb - 2.75) / (4.20 - 2.75) * 100.0;
+  return constrain(pct, 0, 100);
 }
 
 // ----------------------------------------------------------------------------
@@ -474,6 +542,13 @@ void setup() {
 
 void loop() {
   // BLE provisioning & Wi-Fi events are handled in background
+
+  if (g_restartProv) {
+    g_restartProv = false;            // clear first
+    WiFiProv.endProvision();          // 1) stop old session
+    delay(200);                       // 2) small pause (200 ms is plenty)
+    startProvisioning();              // 3) start new session
+  }
 
   // check for reset of wifi credentials
   // static uint32_t pressStart = 0;

@@ -91,10 +91,6 @@ static int16_t error;
 WiFiClientSecure net = WiFiClientSecure();
 PubSubClient client(net);
 
-
-volatile bool g_restartProv = false;
-
-
 // ----------------------------------------------------------------------------
 //  Forward declarations
 // ----------------------------------------------------------------------------
@@ -103,10 +99,6 @@ bool attemptWiFiConnect();
 void startProvisioning();
 void onWiFiConnected();
 void SysProvEvent(arduino_event_t *e);
-
-void restartProvisionLater() {
-  g_restartProv = true;          // will be serviced in loop()
-}
 
 // ----------------------------------------------------------------------------
 //  helper functions
@@ -216,9 +208,6 @@ bool attemptWiFiConnect() {
 // ----------------------------------------------------------------------------
 void startProvisioning() {
   Serial.println("[SETUP] Starting BLE provisioning…");
-  
-  // keep BLE GATT server running even after a session ends
-  WiFiProv.disableAutoStop(0);
   
   WiFiProv.beginProvision(
     NETWORK_PROV_SCHEME_BLE,
@@ -411,15 +400,14 @@ void SysProvEvent(arduino_event_t *e) {
         Serial.println("   ↳ Auth error (bad password)");
       } else if (reason == NETWORK_PROV_WIFI_STA_AP_NOT_FOUND) {
         Serial.println("   ↳ AP not found (wrong SSID / hidden / 5GHz?)");
-      }
+      } 
       display.clearDisplay();
       display.setTextSize(1);
       oledMessage("WiFi setup failed!", 0);
-      oledMessage("Reenter credentials", 1);
-      // delay(3000);
+      oledMessage("Device will reboot", 1);
+      delay(3000);
       WiFi.disconnect(true);
-      restartProvisionLater();      // defer restart
-      break;
+      esp_deep_sleep(500000ULL);
     }
 
     case ARDUINO_EVENT_PROV_CRED_SUCCESS:
@@ -430,15 +418,26 @@ void SysProvEvent(arduino_event_t *e) {
       Serial.println("\n[PROV] end");
       break;
 
-    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      Serial.println("[WIFI] disconnected");
-      display.clearDisplay();
-      display.setTextSize(1);
-      oledMessage("WiFi connect failed", 0);
-      oledMessage("Reenter credentials", 1);
-      WiFi.disconnect(true);
-      restartProvisionLater();      // defer restart
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+      // <-- open a new scope here
+      wifi_event_sta_disconnected_t info = e->event_info.wifi_sta_disconnected;
+      Serial.printf("[WIFI] disconnected, reason=%d\n", info.reason);
+
+      if (info.reason == WIFI_REASON_AUTH_EXPIRE ||
+          info.reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+          info.reason == WIFI_REASON_HANDSHAKE_TIMEOUT) {
+        Serial.println("↳ Auth failure—rebooting");
+        display.clearDisplay();
+        oledMessage("WiFi setup failed!", 0);
+        oledMessage("Device will reboot", 1);
+        delay(3000);
+        WiFi.disconnect(true);
+        ESP_ERROR_CHECK( nvs_flash_erase() );
+        ESP_ERROR_CHECK( nvs_flash_init() );  
+        esp_deep_sleep(500000ULL);
+      }
       break;
+    } // <-- close the scope here
 
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       // Once we get an IP, run our connected logic
@@ -541,14 +540,6 @@ void setup() {
 }
 
 void loop() {
-  // BLE provisioning & Wi-Fi events are handled in background
-
-  if (g_restartProv) {
-    g_restartProv = false;            // clear first
-    WiFiProv.endProvision();          // 1) stop old session
-    delay(200);                       // 2) small pause (200 ms is plenty)
-    startProvisioning();              // 3) start new session
-  }
 
   // check for reset of wifi credentials
   // static uint32_t pressStart = 0;

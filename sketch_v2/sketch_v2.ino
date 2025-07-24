@@ -331,13 +331,16 @@ void onWiFiConnected() {
   oledMessage(("RH: " + String(relativeHumidity)).c_str(), 3);
   oledMessage(("BAT V: " + String(bat_vb)).c_str(), 4);
   oledMessage(("BAT PCT: " + String(bat_pct)).c_str(), 5);
-  
+
+
+  delay(3000);
+  display.clearDisplay();
 
   String idStr = WiFi.macAddress();
 
   // esp_efuse_mac_get_default(factoryMac);  // Gets factory MAC from efuse
   // sprintf(idStr, "%02X:%02X:%02X:%02X:%02X:%02X", factoryMac[0], factoryMac[1], factoryMac[2],factoryMac[3], factoryMac[4], factoryMac[5]);
-
+  oledMessage("Connecting to AWS", 3);
   connectAWS();
   JsonDocument doc;
   // doc["sensortime"] = "TIME";
@@ -355,15 +358,9 @@ void onWiFiConnected() {
   client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer);
 
   client.loop();
+  oledMessage("Data sent to AWS", 4);
   Serial.println("[APP] Sending data to AWS");
-  delay(5000);
-
-  // if (client.connected()) {
-  //   bool sent = client.publish("esp32/pub", "{\"hello\":123}");
-  //   client.loop();
-  //   Serial.print("[DBG] publish returned "); 
-  //   Serial.println(sent);
-  // }
+  delay(3000);
 
   display.clearDisplay();
   oledMessage("Going to sleep",3);

@@ -94,8 +94,6 @@ AWS --> Sub
 
 ## Photos
 
-Thumbnails below are scaled for the README; click to view full size.
-
 <p>
   <a href="images/IMG_9722.jpg" target="_blank">
     <img src="images/IMG_9722.jpg" alt="Device photo 1" width="320" />

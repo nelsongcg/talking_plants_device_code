@@ -92,6 +92,12 @@ ESP --> AWS
 AWS --> Sub
 ```
 
+## Photos
+
+![Device photo 1](images/IMG_9722.jpg)
+
+![Device photo 2](images/IMG_9723.jpg)
+
 ## How The Code Works
 - Provisioning: Uses ESP BLE Provisioning (`WiFiProv`) with service name `ITTP` and POP `ABC123`. See `sketch_v2/sketch_v2.ino:200` for `startProvisioning()` and the event handler at `sketch_v2/sketch_v2.ino:376`.
 - Wi‑Fi connect: Tries stored credentials first (`attemptWiFiConnect()`), otherwise starts provisioning. See `sketch_v2/sketch_v2.ino:191` and `sketch_v2/sketch_v2.ino:520`.

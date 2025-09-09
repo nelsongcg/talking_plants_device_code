@@ -2,6 +2,8 @@
 
 This repo contains the firmware for a low‑power ESP32 device that reads plant‑related environmental data and publishes it securely to AWS IoT Core using MQTT over TLS. It supports BLE‑based Wi‑Fi provisioning, shows status on a small OLED display, and sleeps between readings to save battery.
 
+This repo works together with app and backend that are discussed in this repo: https://github.com/nelsongcg/talking_plants_app
+
 ## What It Does
 - Reads temperature and relative humidity (SHTC3), ambient light (BH1750), soil moisture (analog), and battery voltage.
 - Displays current readings and status on a 0.96" 128×64 SSD1306 OLED.

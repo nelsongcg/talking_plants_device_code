@@ -119,7 +119,6 @@ AWS --> Sub
 3. Paste endpoint, CA cert, device cert, and private key into `sketch_v2/secrets.h` and set a `THINGNAME`.
 4. Build and flash the firmware.
 
-Security note: Never commit real device certificates or private keys to a public repo.
 
 ## Build and Flash
 Prerequisites (Arduino):

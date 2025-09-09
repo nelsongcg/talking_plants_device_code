@@ -94,9 +94,17 @@ AWS --> Sub
 
 ## Photos
 
-![Device photo 1](images/IMG_9722.jpg)
+Thumbnails below are scaled for the README; click to view full size.
 
-![Device photo 2](images/IMG_9723.jpg)
+<p>
+  <a href="images/IMG_9722.jpg" target="_blank">
+    <img src="images/IMG_9722.jpg" alt="Device photo 1" width="320" />
+  </a>
+  <a href="images/IMG_9723.jpg" target="_blank">
+    <img src="images/IMG_9723.jpg" alt="Device photo 2" width="320" />
+  </a>
+  
+</p>
 
 ## How The Code Works
 - Provisioning: Uses ESP BLE Provisioning (`WiFiProv`) with service name `ITTP` and POP `ABC123`. See `sketch_v2/sketch_v2.ino:200` for `startProvisioning()` and the event handler at `sketch_v2/sketch_v2.ino:376`.
